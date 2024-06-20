@@ -29,15 +29,12 @@ static struct bpf_object  *bpf_obj  = NULL;
 static struct bpf_program *bpf_prog = NULL;
 static struct bpf_link    *bpf_link = NULL;
 
-static void print_bpf_output(void *ctx, int cpu, void *data, __u32 size)
-{
-    struct event* v = (struct event *)data;
+
+static int print_bpf_output(void *ctx, void *data, size_t len) {
+    struct event *v = (struct event *)data;
     printf("%s %llu %u %s %u %s %u\n", v->cookie, (unsigned long long)v->micro_second, (unsigned int)v->tgid, v->comm, (unsigned int)v->ppid, v->pcomm, v->uid);
 
-    cnt++;
-    if (cnt == MAX_CNT) {
-        printf("recv %llu events\n",   MAX_CNT);
-    }
+    return 0;
 }
 
 void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
@@ -71,24 +68,22 @@ int main(int argc, char *argv[])
         return 2;
     }
 
-    event_map_fd = bpf_object__find_map_fd_by_name(bpf_obj, "perf_map");
+    event_map_fd = bpf_object__find_map_fd_by_name(bpf_obj, "ring_map");
     if ( 0 >= event_map_fd){
         printf("ERROR: failed to load event_map_fd: '%s'\n", strerror(errno));
         return 1;
     }
 
-    struct perf_buffer *pb;
-    int ret;
-
-    pb = perf_buffer__new(event_map_fd, MAP_PAGE_SIZE, print_bpf_output, handle_lost_events, NULL, NULL);
-    ret = libbpf_get_error(pb);
-    if (ret) {
-        printf("ERROR: failed to setup perf_buffer: %d\n", ret);
+    struct ring_buffer *ring_buffer;
+    ring_buffer = ring_buffer__new(event_map_fd, print_bpf_output, NULL, NULL);
+    if(!ring_buffer) {
+        fprintf(stderr, "failed to create ring buffer\n");
         return 1;
     }
 
-    while ((ret = perf_buffer__poll(pb, 1000)) >= 0 ) {
-        // go forever
+    while(1) {
+        ring_buffer__consume(ring_buffer);
+        sleep(1);
     }
 
     bpf_link__destroy(bpf_link);
@@ -96,4 +91,3 @@ int main(int argc, char *argv[])
 
     return 0;
 }
-
