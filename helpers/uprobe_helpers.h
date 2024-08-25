@@ -16,4 +16,3 @@ Elf *open_elf_by_fd(int fd);
 void close_elf(Elf *e, int fd_close);
 
 #endif /* __UPROBE_HELPERS_H */
-
