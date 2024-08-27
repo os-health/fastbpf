@@ -57,7 +57,7 @@ static struct env {
 	.uid = INVALID_UID
 };
 
-struct opensnoop_bpf {
+struct bpf_object {
         struct bpf_object_skeleton *skeleton;
         struct bpf_object *obj;
         struct {
@@ -77,7 +77,7 @@ struct opensnoop_bpf {
                 struct bpf_link *tracepoint__syscalls__sys_exit_open;
                 struct bpf_link *tracepoint__syscalls__sys_exit_openat;
         } links;
-        struct opensnoop_bpf__rodata {
+        struct bpf_object__rodata {
                 pid_t targ_pid;
                 pid_t targ_tgid;
                 uid_t targ_uid;
@@ -313,6 +313,76 @@ void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
 	fprintf(stderr, "Lost %llu events on CPU #%d!\n", lost_cnt, cpu);
 }
 
+static inline int
+bpf_object__create_skeleton(struct bpf_object *obj, char * obj_buf, size_t obj_buf_sz)
+{
+        struct bpf_object_skeleton *s;
+        int err;
+
+        s = (struct bpf_object_skeleton *)calloc(1, sizeof(*s));
+        if (!s) { 
+                err = -ENOMEM;
+                goto err;
+        }
+
+        s->sz = sizeof(*s);
+        s->name = "opensnoop_bpf";
+        s->obj = &obj->obj;
+
+        /* maps */
+        s->map_cnt = 3;
+        s->map_skel_sz = sizeof(*s->maps);
+        s->maps = (struct bpf_map_skeleton *)calloc(s->map_cnt, s->map_skel_sz);
+        if (!s->maps) {
+                err = -ENOMEM;
+                goto err;
+        }
+        
+        s->maps[0].name = "start";
+        s->maps[0].map = &obj->maps.start;
+
+        s->maps[1].name = "events";
+        s->maps[1].map = &obj->maps.events;
+        
+        s->maps[2].name = "opensnoo.rodata";
+        s->maps[2].map = &obj->maps.rodata;
+        s->maps[2].mmaped = (void **)&obj->rodata;
+
+        /* programs */
+        s->prog_cnt = 4;
+        s->prog_skel_sz = sizeof(*s->progs);
+        s->progs = (struct bpf_prog_skeleton *)calloc(s->prog_cnt, s->prog_skel_sz);
+        if (!s->progs) {
+                err = -ENOMEM;
+                goto err;
+        }
+
+        s->progs[0].name = "tracepoint__syscalls__sys_enter_open";
+        s->progs[0].prog = &obj->progs.tracepoint__syscalls__sys_enter_open;
+        s->progs[0].link = &obj->links.tracepoint__syscalls__sys_enter_open;
+
+        s->progs[1].name = "tracepoint__syscalls__sys_enter_openat";
+        s->progs[1].prog = &obj->progs.tracepoint__syscalls__sys_enter_openat;
+        s->progs[1].link = &obj->links.tracepoint__syscalls__sys_enter_openat;
+
+        s->progs[2].name = "tracepoint__syscalls__sys_exit_open";
+        s->progs[2].prog = &obj->progs.tracepoint__syscalls__sys_exit_open;
+        s->progs[2].link = &obj->links.tracepoint__syscalls__sys_exit_open;
+
+        s->progs[3].name = "tracepoint__syscalls__sys_exit_openat";
+        s->progs[3].prog = &obj->progs.tracepoint__syscalls__sys_exit_openat;
+        s->progs[3].link = &obj->links.tracepoint__syscalls__sys_exit_openat;
+
+	s->data    = obj_buf;
+	s->data_sz = obj_buf_sz;
+
+        obj->skeleton = s;
+        return 0;
+err:
+        bpf_object__destroy_skeleton(s);
+        return err;
+}
+
 int main(int argc, char **argv)
 {
 	LIBBPF_OPTS(bpf_object_open_opts, open_opts);
@@ -322,7 +392,7 @@ int main(int argc, char **argv)
 		.doc = argp_program_doc,
 	};
 	struct perf_buffer *pb = NULL;
-	struct opensnoop_bpf *obj;
+	struct bpf_object *obj;
 	__u64 time_end = 0;
 	int err;
 
@@ -338,72 +408,15 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-        obj = (struct opensnoop_bpf *)calloc(1, sizeof(*obj));
+        obj = (struct bpf_object *)calloc(1, sizeof(*obj));
         if (!obj) {
                 errno = ENOMEM;
                 goto cleanup;
         }
 
-        struct bpf_object_skeleton *skeleton;
-
-        skeleton = (struct bpf_object_skeleton *)calloc(1, sizeof(*skeleton));
-        if (!skeleton) {
-                err = -ENOMEM;
+        err = bpf_object__create_skeleton(obj, obj_buf, obj_buf_sz);
+        if (err)
                 goto cleanup;
-        }
-
-        skeleton->sz = sizeof(*skeleton);
-        skeleton->name = "opensnoop_bpf";
-	skeleton->obj = &obj->obj;
-
-        /* maps */
-        skeleton->map_cnt = 3;
-        skeleton->map_skel_sz = sizeof(*skeleton->maps);
-        skeleton->maps = (struct bpf_map_skeleton *)calloc(skeleton->map_cnt, skeleton->map_skel_sz);
-        if (!skeleton->maps) {
-                err = -ENOMEM;
-                goto cleanup;
-        }
-
-        skeleton->maps[0].name = "start";
-        skeleton->maps[0].map = &obj->maps.start;
-
-        skeleton->maps[1].name = "events";
-	skeleton->maps[1].map = &obj->maps.events;
-
-        skeleton->maps[2].name = "opensnoo.rodata";
-        skeleton->maps[2].map = &obj->maps.rodata;
-        skeleton->maps[2].mmaped = (void **)&obj->rodata;
-
-        /* programs */
-        skeleton->prog_cnt = 4;
-        skeleton->prog_skel_sz = sizeof(*skeleton->progs);
-        skeleton->progs = (struct bpf_prog_skeleton *)calloc(skeleton->prog_cnt, skeleton->prog_skel_sz);
-        if (!skeleton->progs) {
-                err = -ENOMEM;
-                goto cleanup;
-        }
-
-        skeleton->progs[0].name = "tracepoint__syscalls__sys_enter_open";
-        skeleton->progs[0].prog = &obj->progs.tracepoint__syscalls__sys_enter_open;
-        skeleton->progs[0].link = &obj->links.tracepoint__syscalls__sys_enter_open;
-
-        skeleton->progs[1].name = "tracepoint__syscalls__sys_enter_openat";
-        skeleton->progs[1].prog = &obj->progs.tracepoint__syscalls__sys_enter_openat;
-        skeleton->progs[1].link = &obj->links.tracepoint__syscalls__sys_enter_openat;
-
-        skeleton->progs[2].name = "tracepoint__syscalls__sys_exit_open";
-        skeleton->progs[2].prog = &obj->progs.tracepoint__syscalls__sys_exit_open;
-        skeleton->progs[2].link = &obj->links.tracepoint__syscalls__sys_exit_open;
-
-        skeleton->progs[3].name = "tracepoint__syscalls__sys_exit_openat";
-        skeleton->progs[3].prog = &obj->progs.tracepoint__syscalls__sys_exit_openat;
-        skeleton->progs[3].link = &obj->links.tracepoint__syscalls__sys_exit_openat;
-
-        skeleton->data    = obj_buf;
-	skeleton->data_sz = obj_buf_sz;
-
-	obj->skeleton = skeleton;
 
         err = bpf_object__open_skeleton(obj->skeleton, &open_opts);
 	if (!obj) {
@@ -423,13 +436,13 @@ int main(int argc, char **argv)
 		bpf_program__set_autoload(obj->progs.tracepoint__syscalls__sys_exit_open, false);
 	}
 
-	err = bpf_object__load_skeleton(skeleton);
+	err = bpf_object__load_skeleton(obj->skeleton);
 	if (err) {
 		fprintf(stderr, "failed to load BPF object: %d\n", err);
 		goto cleanup;
 	}
 
-	err = bpf_object__attach_skeleton(skeleton);
+	err = bpf_object__attach_skeleton(obj->skeleton);
 	if (err) {
 		fprintf(stderr, "failed to attach BPF programs\n");
 		goto cleanup;
@@ -489,7 +502,7 @@ int main(int argc, char **argv)
 
 cleanup:
 	perf_buffer__free(pb);
-        bpf_object__destroy_skeleton(skeleton);
+        bpf_object__destroy_skeleton(obj->skeleton);
 	cleanup_core_btf(&open_opts);
 #ifdef USE_BLAZESYM
 	blazesym_free(symbolizer);
