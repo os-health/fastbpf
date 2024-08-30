@@ -93,7 +93,7 @@ static const struct argp_option opts[] = {
     {},
 };
 
-struct bpf_object {
+struct object_bpf {
         struct bpf_object_skeleton *skeleton;
         struct bpf_object *obj;
         struct {
@@ -220,7 +220,7 @@ static void handle_lost_events(void *ctx, int cpu, __u64 lost_cnt)
 }
 
 static inline int
-bpf_object__create_skeleton(struct bpf_object *obj, char * obj_buf, size_t obj_buf_sz)
+bpf_object__create_skeleton(struct object_bpf *obj, char * obj_buf, size_t obj_buf_sz)
 {
         struct bpf_object_skeleton *s;
         int err;
@@ -309,7 +309,7 @@ int main(int argc, char **argv)
 		.doc = argp_program_doc,
 	};
 	struct perf_buffer *pb = NULL;
-	struct bpf_object *obj;
+	struct object_bpf *obj;
 	int err;
 
 	alias_parse(argv[0]);
@@ -319,7 +319,7 @@ int main(int argc, char **argv)
 
 	libbpf_set_print(libbpf_print_fn);
 
-        obj = (struct bpf_object *)calloc(1, sizeof(*obj));
+        obj = (struct object_bpf *)calloc(1, sizeof(*obj));
         if (!obj) {
                 errno = ENOMEM;
                 goto cleanup;

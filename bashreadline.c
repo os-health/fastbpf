@@ -23,7 +23,7 @@
 
 static volatile sig_atomic_t exiting = 0;
 
-struct bpf_object {
+struct object_bpf {
         struct bpf_object_skeleton *skeleton;
         struct bpf_object *obj;
         struct {
@@ -193,7 +193,7 @@ static void sig_int(int signo)
 }
 
 static inline int
-bpf_object__create_skeleton(struct bpf_object *obj, char * obj_buf, size_t obj_buf_sz)
+bpf_object__create_skeleton(struct object_bpf *obj, char * obj_buf, size_t obj_buf_sz)
 {
         struct bpf_object_skeleton *s;
         int err;
@@ -252,7 +252,7 @@ int main(int argc, char **argv)
 		.doc = argp_program_doc,
 	};
 	struct perf_buffer *pb = NULL;
-	struct bpf_object *obj = NULL;
+	struct object_bpf *obj = NULL;
 	char *readline_so_path;
 	off_t func_off;
 	int err;
@@ -275,7 +275,7 @@ int main(int argc, char **argv)
 		goto cleanup;
 	}
 
-        obj = (struct bpf_object *)calloc(1, sizeof(*obj));
+        obj = (struct object_bpf *)calloc(1, sizeof(*obj));
         if (!obj) {
                 errno = ENOMEM;
                 goto cleanup;
